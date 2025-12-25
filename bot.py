@@ -1,24 +1,25 @@
 import os
-import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
+import time
+import telebot
+from telebot import types
+import threading
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
-
+bot = telebot.TeleBot(BOT_TOKEN)
 ADMIN_ID = None
 
-@dp.message_handler(commands=["start"])
-async def start(msg: types.Message):
+@bot.message_handler(commands=['start'])
+def start(message):
     global ADMIN_ID
-    ADMIN_ID = msg.from_user.id
-    await msg.answer("Привет! Я буду присылать черновики для канала «АвтоКоротко | РФ» 🚗")
+    ADMIN_ID = message.from_user.id
+    bot.send_message(message.chat.id, "Привет! Я буду присылать черновики для канала «АвтоКоротко | РФ» 🚗")
 
-async def send_draft():
+def send_draft():
+    if not ADMIN_ID:
+        return
+
     text = (
         "🚗 Камеры начали чаще штрафовать за телефон\n\n"
         "Коротко — держать телефон в руках стало дороже.\n\n"
@@ -28,33 +29,28 @@ async def send_draft():
         "Руки — на руль 📵"
     )
 
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-        InlineKeyboardButton("❌ Отклонить", callback_data="cancel")
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+        types.InlineKeyboardButton("❌ Отклонить", callback_data="cancel")
     )
 
-    await bot.send_message(ADMIN_ID, text, reply_markup=kb)
+    bot.send_message(ADMIN_ID, text, reply_markup=markup)
 
-@dp.callback_query_handler(lambda c: c.data == "publish")
-async def publish(cb: types.CallbackQuery):
-    await bot.send_message(CHANNEL_ID, cb.message.text)
-    await cb.message.answer("✅ Опубликовано")
-    await cb.answer()
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    if call.data == "publish":
+        bot.send_message(CHANNEL_ID, call.message.text)
+        bot.send_message(call.message.chat.id, "✅ Опубликовано")
+    elif call.data == "cancel":
+        bot.send_message(call.message.chat.id, "❌ Черновик отклонён")
 
-@dp.callback_query_handler(lambda c: c.data == "cancel")
-async def cancel(cb: types.CallbackQuery):
-    await cb.message.answer("❌ Черновик отклонён")
-    await cb.answer()
-
-async def scheduler():
-    await asyncio.sleep(20)
+def scheduler():
+    time.sleep(20)
     while True:
-        if ADMIN_ID:
-            await send_draft()
-        await asyncio.sleep(28800)  # 3 раза в день
+        send_draft()
+        time.sleep(28800)  # 3 раза в день
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(scheduler())
-    executor.start_polling(dp)
+    threading.Thread(target=scheduler, daemon=True).start()
+    bot.infinity_polling()
